@@ -1,0 +1,352 @@
+实验五、嵌入式Linux驱动编程实验
+一、实验目的
+编写简单的虚拟硬件驱动程序并进行调试，实验驱动的各个接口函数的实现,分析并理解驱动与应用程序的交互过程。
+二、实验基本要求
+1. 编写简单的虚拟硬件驱动程序并进行调试。
+2. 掌握字符设备驱动程序开发的原理及步骤。
+3. 编写加载驱动程序到Ubuntu系统或嵌入式实验箱的Makefile文件。
+三、实验原理
+Linux中的驱动设计是嵌入式 Linux 开发中十分重要的部分，它要求开发者不仅要熟悉 Linux的内核机制、驱动程序与用户级应用程序的接口关系、考虑系统中对设备的并发操作等等，而且还要非常熟悉所开发硬件的工作原理。这对驱动开发者提出了比较高的要求，这个实验主要是给大家进入驱动设计提供一个简单入门的一个实例，并不需要提供太多与硬件相关的内容，这部分应该是通过仔细阅读芯片厂家提供的资料来解决。
+1．Linux 设备驱动的定义
+
+
+
+
+
+
+
+
+
+
+ 
+设备驱动最通俗的解释就是“驱使硬件设备行动”。用户应用程序直接对硬件操作是非常复杂的，设备驱动程序作为内核的一部分，其作用就是让驱动与底层硬件直接打交道，按照硬件设备的具体工作方式，读写设备的寄存器，完成设备的轮询、中断处理、DMA 通信，进行物理内存向虚拟内存的映射等，最终让通信设备能收发数据，让显示设备能显示文字和画面，让存储设备能记录文件和数据。
+这样设备驱动程序就是用户应用程序与硬件之间的中间软件层，用户应用程序通过间接地调用设备驱动程序来操作硬件。
+     另一方面，在Linux中，将每个硬件设备都作为一个文件对待，即每个设备有一个对应的设备文件，每个设备文件其实就是编译后的驱动程序，一旦将驱动程序以模块的方式加载到内核中，那么用户应用程序就可以通过标准的文件读写调用接口对硬件设备进行数据读取或写入。当然如果不用此设备，可以将其驱动程序从内核中卸载。
+2．Linux 设备驱动的分类
+（1）字符设备：字符设备指那些必须以字节流的串行顺序依次进行访问的设备，如串行口、并行口、虚拟控制台（触摸屏、磁带驱动器、鼠标等）。这种设备没有缓冲区，一旦有IO请求，立刻发生实际的硬件IO操作。
+（2）块设备：块设备通常以块为单位，利用数据缓冲区进行读写，可以用以随机方式任意顺序进行访问，如硬盘、软驱等。这种设备接到IO请求后，只有满足一定条件时，才会发生实际的硬件IO操作。注：字符设备和块设备并没有明显的界限，如对于Flash设备，符合块设备的特点，但也支持“字节流”方式访问，所以仍然可以把它作为一个字符设备来访问。
+（3）网络设备：通常指网络设备访问的接口，如网卡等。他们由内核中网络子系统驱动，负责接受和发送数据包。
+3. 主设备号和次设备号
+设备号是一个数字ID，它是设备的标志。设备号有主设备号和次设备号，其中主设备号表示设备类型，对应于该类型设备的驱动程序。而次设备号标识一个具体的物理设备。
+传统方式中的设备管理中,除了设备类型外,内核还需要一对称作主次设备号的参数, 才能唯一标识一个设备。主设备号相同的设备使用相同的驱动程序，次设备号用于区分具体设备的实例。比如 PC 机中的 IDE 设备，一般主设备号使用 3，WINDOWS下进行的分区，一般将主分区的次设备号为 1，扩展分区的次设备号为 2、3、4，逻辑分区使用 5、6….。设备操作宏 MAJOR()和 MINOR()可分别用于获取主次设备号，宏 MKDEV()用于将主设备号和次设备号合并为设备号，这些宏定义在 include/linux/kdev_t.h 中。
+你可以使用头文件 linux/fs.h中的函数register_chrdev来实现注册一个某个驱动模块对应的主设备号。
+int register_chrdev(unsignedint major, constchar *name, struct file_operations *fops);
+其中unsigned int major是你申请的主设备号， const char *name是将要在文件/proc/devicesstruct file_operations *fops是指向你的驱动模块的 file_operations表的指针。负的返回值意味着注册失败。注意注册并不需要提供次设备号。内核本身并不在意次设备号。
+register_chrdev一般在int device_init()函数中调用，即将内核驱动模块加载入内核意味着要向内核注册自己。
+现在的问题是你如何申请到一个没有被使用的主设备号？最简单的方法是查看文件 Documentation/devices.txt从中挑选一个没有被使用的。这不是一劳永逸的方法因为你无法得知该主设备号在将来会被占用。最终的方法是让内核为你动态分配一个。
+如果你向函数register_chrdev传递为0的主设备号，那么返回的就是动态分配的主设备号。此时应该通过命令 “cat /proc/devices”命令输出得到，使用mknod统调用建立设备文件。
+4．Linux 的驱动程序编译方法
+（1）将其源代码添加到内核源文件中，然后静态编译整个内核，再运行新的内核来测试
+（2）编译为模块的形式，单独加载运行调试
+第一种方法效率较低，但在某些场合是唯一的方法。模块方式调试效率很高，它使用 insmod工具将编译的模块直接插入内核，如果出现故障，以使用rmmod 从内核中卸载模块。不需要重新启动内核，这使驱动调试效率大大提高。
+5．驱动程序与应用程序的区别
+（1）应用程序一般有一个 main 函数，从头到尾执行一个任务；驱动程序却不同，它没有 main 函数，通过使用宏module_init(初始化函数名); 将初始化函数加入内核全局初始化函数列表中，在内核初始化时执行驱动的初始化函数，从而完成驱动的初始化和注册，之后驱动便停止等待被应用软件调用。驱动程序中有一个宏moudule_exit(退出处理函数名)注册退出处理函数。它在驱动退出时被调用。
+（2）应用程序可以和 GLIBC 库连接，因此可以包含标准的头文件，比如<stdio.h><stdlib.h>, 在驱动程序中是不能使用标准 C 库的，因此不能调用所有的 C 库函数，比如输出打印函数只能使用内核的 printk函数，包含的头文件只能是内核的头文件，比如: <linux/module.h>。
+6. 设备驱动程序接口
+结构体file_operations在头文件 linux/fs.h中定义，用来存储驱动内核模块提供的对设备进行各种操作的功能接口函数的指针。该结构体的每个域都对应着驱动内核模块用来处理某个被请求的事务的函数的地址。
+struct file_operations {
+	struct module *owner;
+	loff_t(*llseek) (struct file *, loff_t, int);
+	ssize_t(*read) (struct file *, char __user *, size_t, loff_t *);
+	ssize_t(*aio_read) (struct kiocb *, char __user *, size_t, loff_t);
+	ssize_t(*write) (struct file *, constchar __user *, size_t, loff_t *);
+	ssize_t(*aio_write) (struct kiocb *, constchar __user *, size_t,
+			loff_t);
+	int (*readdir) (struct file *, void *, filldir_t);
+	unsignedint (*poll) (struct file *, struct poll_table_struct *);
+	int (*ioctl) (struct inode *, struct file *, unsignedint,
+			unsignedlong);
+	int (*mmap) (struct file *, struct vm_area_struct *);
+	int (*open) (struct inode *, struct file *);
+	int (*flush) (struct file *);
+	int (*release) (struct inode *, struct file *);
+	int (*fsync) (struct file *, struct dentry *, int datasync);
+	int (*aio_fsync) (struct kiocb *, int datasync);
+	int (*fasync) (int, struct file *, int);
+	int (*lock) (struct file *, int, struct file_lock *);
+	ssize_t(*readv) (struct file *, conststruct iovec *, unsignedlong,
+			loff_t *);
+	ssize_t(*writev) (struct file *, conststruct iovec *, unsignedlong,
+			loff_t *);
+	ssize_t(*sendfile) (struct file *, loff_t *, size_t, read_actor_t,
+			void __user *);
+	ssize_t(*sendpage) (struct file *, struct page *, int, size_t,
+			loff_t *, int);
+	unsignedlong (*get_unmapped_area) (struct file *, unsignedlong,
+			unsignedlong, unsignedlong,
+			unsignedlong);
+};
+驱动内核模块是不需要实现每个函数的。像视频卡的驱动就不需要从目录的结构中读取数据。那么，相对应的file_operations重的项就为 NULL。gcc还有一个方便使用这种结构体的扩展。在较现代的驱动内核模块中见到。使用这种结构体的新的方式如下：
+struct file_operations fops = {
+		.read = device_read,
+		.write = device_write,
+		.open = device_open,
+		.release = device_release
+};
+在用户应用程序利用系统调用对设备文件进行操作时，系统调用首先通过设备文件的主设备号找到相应的驱动程序，然后读取这个结构体相应的函数指针，借着把控制权交给驱动的这个函数。
+例如：当应用程序调用read(设备文件名,,)函数时，系统会根据主设备号找到其struct file_operations中device_read功能接口函数。应用程序调用open()文件操作是通过调用file_operations结构的device_open函数接口而实现的。
+
+7．字符驱动程序编写流程
+(1) 包含字符设备驱动程序所必需包含的头文件
+(2) 定义字符设备文件名、主设备号或由系统动态分配设备号
+(3) 编写file_operations结构体中功能接口函数，如以上device_read、device_write, device_open
+(4) 定义file_operations结构变量，建立用户程序调用函数与驱动功能接口的对应关系。
+(5) 编写字符设备驱动程序加载函数，完成设备文件注册及必要的初始化
+(6) 编写字符设备驱动程序卸载函数，完成注销及必要的环境恢复。
+(7) 编写Makefile文件，使用make来编译Makefile，生成****.ko内核模块文件
+(8) 使用“insmod ***.ko”加载设备驱动程序，并调用dmesg来查看输出结果
+(9) 使用“cat  /proc/devices” 查看获取主设备号
+(10) 使用“mknod /dev/设备文件名 c 主设备号 0”来创建设备文件
+(11) 编写用户应用程序，调用用户调用接口对驱动功能接口进行测试。
+(12) 使用“rmmod /dev/设备文件名”卸载驱动模块，并调用dmesg查看
+
+四、实验内容
+(1）新建一个driver目录，将Dev_frame.c拷贝到其中。
+
+mkdir driver 
+sudo cp Dev_frame.c /driver
+
+(2) 包含字符设备驱动程序所必需包含的头文件。
+(3) 定义字符设备文件名、主设备号或由系统动态分配设备号。
+(4) 编写file_operations结构体中功能接口函数，如以上device_read、device_write, device_open
+(5) 定义file_operations结构变量，建立用户程序调用接口与驱动功能接口的对应关系。
+(6) 编写字符设备驱动程序加载函数，完成设备文件注册及必要的初始化。
+(7) 编写字符设备驱动程序卸载函数，完成注销及必要的环境恢复。
+
+(8) 在driver目录下编写Makefile文件。
+
+CROSS_COMPILE ?=
+ARCH ?=
+ifeq ($(KERNELRELEASE),)
+
+kerneldir := /lib/modules/${shell uname -r}/build
+#kerneldir :=/opt/FriendlyARM/tiny210/src/linux-3.0.8
+
+pwd := ${shell pwd}
+
+
+default:
+	make -C ${kerneldir} M=${pwd} modules
+clean:
+	@rm -r ?*.o ?*.ko ?*.order ?*.mod ?*.mod.c ?*.symvers\
+		.*.cmd 
+else
+
+obj-m := dev_frame.o
+
+endif
+
+
+(9) 使用make来编译Makefile，生成****.ko内核模块文件。
+(10) 使用“insmod  ***.ko”加载设备驱动程序，并调用dmesg来查看内核驱动输出结果。
+(11) 使用“cat  /proc/devices” 查看获取主设备号。
+ 99 ppdev
+108 ppp
+116 alsa
+128 ptm
+136 pts
+180 usb
+189 usb_device
+204 ttyMAX
+226 drm
+239 aux
+240 cec
+241 BaseRemoteCtl
+242 hidraw
+243 vfio
+244 bsg
+245 watchdog
+246 ptp
+247 pps
+248 rtc
+249 dma_heap
+250 dax
+251 dimmctl
+252 ndctl
+253 tpm
+254 gpiochip
+(12) 使用“mknod  /dev/设备文件名 c 主设备号 0”在目录/dev下创建设备文件
+mknod  /dev/Dev_frame c 249 0
+(13) 编写用户应用程序m_test.c，调用标准的文件操作open()、read()、write()等对驱动功能接口进行测试。并dmesg来查看内核驱动输出结果。
+(14) 使用“rmmod  /dev/设备文件名”卸载驱动模块，并调用dmesg查看
+
+
+五、实验结果及分析：
+1．请简述设备驱动程序的作用
+其作用就是让驱动与底层硬件直接打交道，按照硬件设备的具体工作方式，读写设备的寄存器，完成设备的轮询、中断处理、DMA 通信，进行物理内存向虚拟内存的映射等，最终让通信设备能收发数据，让显示设备能显示文字和画面，让存储设备能记录文件和数据
+
+
+2．写出驱动开发的一般步骤。
+
+1:我们首先要确定硬件平台接线，然后确定该设备接口，比如一般的IIC SPI USB USART 等接口
+2:一般的发行版内核都有通用对应接口的驱动，我们将该文件稍加修改即可
+3.内核驱动有两种方式加载，一种是以模块的方式动态加载(驱动开发初期推荐)，一种是直接编译入内核
+4.修改对应目录下的Kconfig和Makefile
+
+
+
+3．写出在Ubuntu编译驱动程序的makefile文件。
+
+obj-m += Dev_frame.o
+
+PWD:= ${shell pwd}
+all:
+	make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) modules
+clean:
+	make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) clean
+
+
+
+
+
+
+
+附录：Dev_frame.c部分代码
+#include <linux/module.h>   	//模块所需的大量符号和函数定义
+#include <linux/fs.h>       	//文件系统相关的函数和头文件
+#include <linux/cdev.h>     	//cdev结构的头文件
+#include <asm/uaccess.h>  	//copy_to_user()/copy_from_user()定义
+
+#define DEVICE_NAME 	"Dev_frame"	//定义模块名，供”cat /proc/devices”命令查看
+int DEVICE_MAJOR = 0;     		//如果为0，则由系统自动分配主设备号
+
+#define M_LENGTH 	10
+char core_data0[M_LENGTH][M_LENGTH];	//定义内核数据矩阵，用于将其传递给用户空间
+char core_data1[M_LENGTH][M_LENGTH];  //用于接收用户空间传递过来的数据
+/*-----------------------------------------------*/ 
+int device_open(struct inode *inode, struct file *filp) {
+	char	c='a';
+	int	i,j;
+	printk("user open device.\n"); 	
+	for(i=0;i<M_LENGTH;i++){		//初始化数据
+		for(j=0;j<M_LENGTH;j++){
+			core_data0[i][j]=c+j;	       //初始化内核数据矩阵
+		}
+	}
+      	return 0; } 
+/*-----------------------------------------------*/ 
+ssize_t  device_write(struct file *filp,const char *buffer, size_t count, loff_t *f_pos) 
+{
+  	int	i,j;
+	printk("user write data to driver.\n");
+ 	copy_from_user(core_data1, buffer, count);//将用户空间传递过来buffer里面的数据复制到内核空间core_data1数组中
+	 	for(i=0;i<M_LENGTH;i++){
+			for(j=0;j<M_LENGTH;j++){
+				printk(KERN_EMERG "%c", core_data1[i][j]);;//使用printk打印内核空间core_data1数组中元素
+		}
+	printk("\n");
+	}
+	return count;
+}
+/*-----------------------------------------------*/
+ssize_t  device_read(struct file *filp, char *buffer, size_t count, loff_t *f_pos) 
+{
+ 	printk("user read data from driver.\n");
+	copy_to_user(buffer, core_data0, count);//将内核空间core_data0数组复制到用户空间buffer
+ 	return count; 
+}
+/*-----------------------------------------------*/
+int device_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg) 
+{
+ 	printk("user ioctl runing.\n");
+	switch(cmd){
+		case 1:
+			printk("cmd = %d.\n",cmd);
+			break;
+ 		case 2:
+ 			printk("cmd = %d.\n",cmd);
+			break;
+		case 3:
+ 			printk("cmd = %d.\n",cmd);
+			break;
+		case 4:
+ 			printk("cmd = %d.\n",cmd);
+			break;
+		case 5:
+			printk("cmd = %d.\n",cmd);
+			break;
+	}
+ 	return cmd; 
+} 
+/*-----------------------------------------------*/ 
+int  device_release(struct inode *inode, struct file *filp) 
+{
+ 	printk("device release\n");
+ 	return 0; 
+} 
+/*---- device_fops 结构定义文件操作函数体之后----- ----*/ 
+struct file_operations device_fops = {
+ 	.owner=	THIS_MODULE,
+ 	.read=device_read,//将用户接口函数read与驱动功能函数device_read对应起来
+ 	//.ioctl=device_ioctl ,        //将用户接口函数ioctl与驱动功能函数device_ioctl对应起来
+ 	.open=device_open, //将用户接口函数open与驱动功能函数device_open对应起来
+ 	.write=device_write,//将用户接口函数write与驱动功能函数device_write对应起来
+ 	.release=device_release,//将用户接口函数release与驱动功能函数device_release对应起来
+};
+/*-----------------------------------------------*/ 
+int device_init(void) {
+ 	int ret; 	
+	//字符驱动程序注册，第1个参数为0(表示由系统自动分配主设备号)，第2个参数为设备文件名，第3个参数为struct file_operations结构体变量指针
+	ret=register_chrdev(DEVICE_MAJOR,DEVICE_NAME,&device_fops);
+	
+	if(ret<0){
+		printk("register chrdev failure!\n");//字符驱动程序注册失败
+         	return ret;
+ 	}
+ 	else{
+		printk("register chrdev ok!\n");
+		DEVICE_MAJOR=ret;	//将系统分配的主设备号保存
+  	}     
+	return 0; 
+} 
+void device_exit(void) {
+	//字符驱动程序注销，第1个参数为主设备号，第2个参数为设备文件名，
+ 	unregister_chrdev(DEVICE_MAJOR,  DEVICE_NAME);
+	printk("unregister chrdev ok!\n"); 
+} 
+module_init(device_init);		   //指定insmod--加载时执行device_init
+module_exit(device_exit);		//rmmod--卸载时执行执行device_exit
+
+
+
+
+
+M_test.c代码：
+#include <sys/stat.h>
+#include <stdio.h>
+#include <fcntl.h>
+
+#define DEVICE_NAME	___________	//查看命令“cat /proc/devices”，与所建立的设备文件同名
+#define M_LENGTH 	10
+
+int main()
+{
+	int fd, i, j, num;
+	char c='a';
+	char app_data0[M_LENGTH][M_LENGTH];	//定义矩阵，用于接收从设备文件里读取的数据
+	char app_data1[M_LENGTH][M_LENGTH];   //定义矩阵，用于将其数据传递给设备文件
+	
+	fd=open(“/dev/Dev_frame”,O_RDWR, S_IRUSR|S_IWUSR);  //可读写方式打开设备文件
+	if(fd==-1){
+		printf("%s device open failure.\n",“/dev/Dev_frame”);
+		return -1;
+	}		
+	printf("Reading data .\n");
+	read(fd,&app_data0,M_LENGTH*M_LENGTH);	//读取设备文件中数据到app_data0中
+	for(i=0;i<M_LENGTH;i++){
+		for(j=0;j<M_LENGTH;j++){
+			app_data1[i][j]=c+i;         //给用户空间app_data1重新赋值
+			printf("%c",app_data0[i][j]);	//打印用户空间数据矩阵app_data0
+		}
+		printf("\n");
+	}
+	printf("Writing data .\n");
+
+	write(fd,&app_data1,M_LENGTH*M_LENGTH);	//将用户空间app_data1写入设备文件中
+
+  
+
+	printf("Device closed .\n");
+	close(fd);                                      	//关闭设备文件
+	return 0;
+}
