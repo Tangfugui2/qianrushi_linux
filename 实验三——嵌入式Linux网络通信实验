@@ -1,0 +1,334 @@
+实验三、嵌入式Linux网络通信实验
+一、实验目的
+1. 掌握TCP与UDP协议原理
+2. 掌握套接字通信原理。
+2. 掌握TCP套接字服务器端与客户端通信方法。
+二、实验基本要求
+1. 学习TCP与UDP协议原理。
+2. 掌握TCP套接字服务器端与客户端通信方法，实验箱和Ubuntu进行TCP通信。
+三、实验原理
+1．TCP协议与UDP协议
+   TCP协议（传输控制协议）是面向连接的通信协议，TCP提供两台计算机之间的可靠无差错的数据传输。应用程序利用TCP进行通信时，客户端和服务器端之间建立一个套接字连接，可以把套接字连接想象为一个电话呼叫，只有呼叫成功时，双方就能进行通话。建立连接的两计算机之间就可以把数据当作一个双向字节流进行传输。一般把在最初建立呼叫时，主动呼叫方称为“客户端”，负责监听方称为“服务器端”。
+   UDP协议(用户数据报协议)是无连接通信协议，UDP不保证可靠的数据传输。如果一个主机向另一个主机发送数据，无需建立连接就会直接将数据发出去，而不管另一台主机是否准备接受数据。如果另一个主机收到了数据，它不会向对方发送收到确认信息。这一过程，类似于从邮局发送信件，无法确认收信人一定能收到发出去的信件。
+2．套接字概述
+   通过IP地址可以在网络上找到主机，通过端口号找到主机上正在运行的程序（进程）。也就是说，网络通信不能简单地说成是两台计算机之间的通信，而是两台计算机上执行的应用程序间收发数据。套接字就是IP地址和端口号的组合，用以表征一个虚拟的文件句柄。
+   根据网络传输协议类型的不同，套接字分为以下三种类型：
+（1）字节流套接字。又称TCP套接字，基于TCP协议连接和传输方式，能保证数据传输的正确性和顺序性。
+（2）数据报套接字。又称UDP套接字，基于UDP协议的连接和传输方式，它定义了一种无连接的服务，数据通过相互独立的数据报进行传输，并且无需对传输的数据进行确认，传输速度快。
+（3）原始套接字。原始套接字允许对底层协议如IP或IMCP进行直接访问，主要用于对一些协议的开发，构造自己的数据报分组。
+3．TCP套接字通信步骤
+3.1 服务器端
+（1）调用socket()创建套接字，然后初始化struct sockaddr_in结构体。
+（2）调用bind函数()为套接字绑定一个IP地址和一个端口号。
+（3）调用listen()函数使套接字成为监听套接字，侦听指定的端口。
+（4）调用accept()函数，使服务器处于阻塞状态，等待接受客户端连接请求。一旦建立连接，将产生新的套接字，此时就有两个套接字了，原来的那个套接字还在监听等待指定的端口，而新产生的套接字则准备发送或接受数据。
+（5）利用send/sendto和recv/recvfrom进行数据传输。当然也可以调用write或read.
+（6）数据传输完毕，关闭套接字。
+3.2 客户端
+（1）调用socket()创建套接字，然后初始化struct sockaddr_in结构体，注意服务器端和客户端的struct sockaddr_in结构体应该一致。
+（2）调用connection()函数与服务器建立连接。
+（3）利用send/sendto和recv/recvfrom进行数据传输. 当然也可以调用write或read.
+（4）数据传输完毕，关闭套接字。
+ 
+4．头文件
+Berkeley套接字接口的定义在几个头文件中。这些文件的名字和内容与具体的实现之间有些许的不同。大体上包括：
+<sys/socket.h>：核心BSD套接字核心函数和数据结构。AF_INET、AF_INET6 地址集和它们相应的协议集PF_INET、PF_INET6. 广泛用于Internet，这些包括了IP地址和TCP、UDP端口号。
+<netinet/in.h>：AF_INET 和AF_INET6 地址家族和他们对应的协议家族 PF_INET 和 PF_INET6。在互联网编程中广泛使用，包括IP地址以及TCP和UDP端口号。
+<sys/un.h>：PF_UNIX/PF_LOCAL 地址集。用于运行在一台计算机上的程序间的本地通信，不用于网络通讯。
+<arpa/inet.h>：处理数值型IP地址的函数。
+<netdb.h>：将协议名和主机名翻译为数值地址的函数。搜索本地数据以及DNS。
+5．套接字API函数
+这个列表是一个Berkeley套接字API库提供的函数或者方法的概要：
+（1）socket() 创建一个新的确定类型的套接字，类型用一个整型数值标识（文件描述符），并为它分配系统资源。
+（2）bind() 一般用于服务器端，将一个套接字与一个套接字地址结构相关联，比如，一个指定的本地端口和IP地址。
+（3）listen() 用于服务器端，使一个绑定的TCP套接字进入监听状态。
+（4）connect() 用于客户端，为一个套接字分配一个自由的本地端口号。如果是TCP套接字的话，它会试图获得一个新的TCP连接。
+（5）accept() 用于服务器端。它接受一个从远端客户端发出的创建一个新的TCP连接的接入请求，创建一个新的套接字，与该连接相应的套接字地址相关联。
+（6）send()和recv(),或者write()和read(),或者recvfrom()和sendto(), 用于往/从远程套接字发送和接受数据。
+（7）close() 用于系统释放分配给一个套接字的资源。如果是TCP，连接会被中断。
+（8）inet_addr()用于将一个网络地址字符串转换成一个32位二进制网络IP地址。
+（9）htons()用于将一个int端口号转换成一个16位二进制网络字节序。
+四、实验内容
+1. 通过实验指导书或者网络资源，学习TCP套接字原理及应用方法。
+TCP套接字原理：通过IP地址可以在网络上找到主机，通过端口号找到主机上正在运行的程序（进程）。也就是说，网络通信不能简单地说成是两台计算机之间的通信，而是两台计算机上执行的应用程序间收发数据。套接字就是IP地址和端口号的组合，用以表征一个虚拟的文件句柄。
+   根据网络传输协议类型的不同，套接字分为以下三种类型：
+（1）字节流套接字。又称TCP套接字，基于TCP协议连接和传输方式，能保证数据传输的正确性和顺序性。
+（2）数据报套接字。又称UDP套接字，基于UDP协议的连接和传输方式，它定义了一种无连接的服务，数据通过相互独立的数据报进行传输，并且无需对传输的数据进行确认，传输速度快。
+（3）原始套接字。原始套接字允许对底层协议如IP或IMCP进行直接访问，主要用于对一些协议的开发，构造自己的数据报分组。
+应用方法：
+服务器端：
+1、创建一个套接字：调用socket()函数，将返回一个套接字描述符sockfd；
+2、为创建的套接字绑定本地插口地址：因为由socket()函数创建的套接字所包含的信息很少，只有一些协议族和类型等
+   ，并没有指定任何的地址，因此需要创建一个套接字地址结构对象，初始化后绑定到创建的套接字上，即下一步的操作。
+3、将套接字绑定到本地插口地址上：创建一个本地套接字地址结构对象（sockaddr_in）,然后通过bind()函数将这个对象和前面的套接字绑定。
+4、好了，服务器端的套接字有本地插口地址了，这个套接字是用来监听的，也就是说这个套接字是用来监听是否有指向该服务器端的连接请求，由listen()函数将这个套接字变成监听套接字。
+5、监听套接字还是不完整的，它是一个没有源端插口地址的套接字，因此当有客户端连接到该服务器端的时候，就会与      监听套接字“组合”成一个完整的已连接套接字了（当然不是真的组合，可以这么来理解这个过程）。服务器端是通过accept()函数来创建一个已连接套接字。
+注意区分监听套接字和已连接套接字：监听套接字是在服务器的生命期过程中一直存在的。而已连接套接字是由内核为每个与服务器连接的客户端创建的。后者在完成给定客户端服务时候被关闭。
+客户端：
+1、创建一个套接字：调用socket()函数，返回一个套接字描述符sockfd;
+2、这里有个需要注意的地方，就是客户端的套接字需不需要bind一个本地插口地址。（前一篇博文中有说）一般没有这个需要。但是我们需要一个目的服务器端的插口地址，但是不是用来绑定到套接字上面，而是用来connect到服务器端。
+3、调用connect()函数后，客户端出发三次握手。发出请求到完成三次握手过程中，客户端的连接请求将进入服务器端      的未完成连接队列，完成三次握手后将进入已完成连接队列中，后者将会唤醒服务器端的进程，从而继续执行 accept()函数。
+然后就可以互相通信传递数据了。
+2. 请补充以下server.c和client.c中代码。本实验中实验箱和Ubuntu，把其中一个当作服务器，一个当作客户端，执行编译生成的可执行程序，进行通信。观察通信结果。
+
+2. 请补充以下server.c和client.c中代码。本实验中实验箱和Ubuntu，把其中一个当作服务器，一个当作客户端，执行编译生成的可执行程序，进行通信。观察通信结果。
+（1）server.c 中部分代码如下，可把文档放大后再查看代码：
+ 
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<stdio.h>
+#include<netinet/in.h>
+#include<arpa/inet.h>
+#include<unistd.h>
+#include<string.h>
+
+#define MAXDATASIZE 50
+
+int main()
+{
+	int server_sockfd;
+	int new_sockfd;
+	struct sockaddr_in server_addr;
+	struct sockaddr_in client_addr;
+	int client_addr_len;
+	char buf[MAXDATASIZE];
+	int numbytes;
+
+	server_sockfd=socket(AF_INET,SOCK_STREAM,0);
+	
+	server_addr.sin_family=AF_INET;
+	server_addr.sin_addr.s_addr=inet_addr("10.10.58.130");
+	server_addr.sin_port=htons(1025);
+	bind(server_sockfd,(struct sockaddr *)&server_addr,sizeof(struct sockaddr));
+	listen(server_sockfd,5);
+	while(1)
+	{
+	client_addr_len = sizeof(struct sockaddr_in);
+	new_sockfd = accept(server_sockfd,(struct sockaddr *)&client_addr,&numbytes);
+	numbytes = recv(new_sockfd,buf,20,0);
+	
+	if(numbytes)
+	{
+		printf("%s\n",buf);
+	}
+	sleep(3);
+	send(new_sockfd,"i am server",20,0);
+	close(new_sockfd);
+
+	if('8'==getchar())
+	{
+	break;
+	}
+	
+	}
+	close(server_sockfd);
+	return 0;
+	
+	
+}
+
+（2）client.c 中部分代码如下，可把文档放大后再查看代码：
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<stdio.h>
+#include<netinet/in.h>
+#include<arpa/inet.h>
+#include<unistd.h>
+#include<string.h>
+
+#define MAXDATASIZE 50
+
+int main(int argc,char *argv[])
+{
+	int sockfd,result;
+	struct sockaddr_in address_addr;
+	char buf[MAXDATASIZE];
+	int numbytes;
+	sockfd=socket(AF_INET,SOCK_STREAM,0);
+	address_addr.sin_family=AF_INET;
+	address_addr.sin_addr.s_addr=inet_addr("10.10.58.130");
+	address_addr.sin_port=htons(1025);
+	result=connect(sockfd,(struct sockaddr *)&address_addr,sizeof(struct sockaddr));
+	send(sockfd,"this is client",20,0);
+	sleep(3);
+	numbytes=recv(sockfd,buf,50,0);
+
+	if(numbytes)
+	{
+	printf("%s\n",buf);
+	}
+	close(sockfd);
+	return 0;
+
+}
+五、实验结果及分析
+1．简述TCP协议与UDP协议原理
+
+TCP协议（传输控制协议）是面向连接的通信协议，TCP提供两台计算机之间的可靠无差错的数据传输。应用程序利用TCP进行通信时，客户端和服务器端之间建立一个套接字连接，可以把套接字连接想象为一个电话呼叫，只有呼叫成功时，双方就能进行通话。建立连接的两计算机之间就可以把数据当作一个双向字节流进行传输。一般把在最初建立呼叫时，主动呼叫方称为“客户端”，负责监听方称为“服务器端”。
+   UDP协议(用户数据报协议)是无连接通信协议，UDP不保证可靠的数据传输。如果一个主机向另一个主机发送数据，无需建立连接就会直接将数据发出去，而不管另一台主机是否准备接受数据。如果另一个主机收到了数据，它不会向对方发送收到确认信息。这一过程，类似于从邮局发送信件，无法确认收信人一定能收到发出去的信件。
+
+
+2．描述TCP服务器端套接字通信过程。
+
+（1）调用socket()创建套接字，然后初始化struct sockaddr_in结构体。
+（2）调用bind函数()为套接字绑定一个IP地址和一个端口号。
+（3）调用listen()函数使套接字成为监听套接字，侦听指定的端口。
+（4）调用accept()函数，使服务器处于阻塞状态，等待接受客户端连接请求。一旦建立连接，将产生新的套接字，此时就有两个套接字了，原来的那个套接字还在监听等待指定的端口，而新产生的套接字则准备发送或接受数据。
+（5）利用send/sendto和recv/recvfrom进行数据传输。当然也可以调用write或read.
+（6）数据传输完毕，关闭套接字。
+
+
+3．描述TCP客户端端套接字通信过程。
+
+（1）调用socket()创建套接字，然后初始化struct sockaddr_in结构体，注意服务器端和客户端的struct sockaddr_in结构体应该一致。
+（2）调用connection()函数与服务器建立连接。
+（3）利用send/sendto和recv/recvfrom进行数据传输. 当然也可以调用write或read.
+（4）数据传输完毕，关闭套接字。
+
+
+4．自己尝试编写UDP套接字通信程序，并进行测试。
+ 
+客户端：
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+ 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+ 
+int main(int argc, char * argv[])
+{
+	//检查命令行参数是否匹配
+	if(argc != 3)
+	{
+		printf("请传递对方的ip和端口号");
+		return -1;
+	}
+	
+	int port = atoi(argv[2]);//从命令行获取端口号
+	if( port<1025 || port>65535 )//0~1024一般给系统使用，一共可以分配到65535
+	{
+		printf("端口号范围应为1025~65535");
+		return -1;
+	}
+	
+	//1 创建udp通信socket
+	int udp_socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if(udp_socket_fd == -1)
+	{
+		perror("socket failed!\n");
+		return -1;
+	}
+    
+	//设置目的IP地址
+    struct sockaddr_in dest_addr = {0};
+    dest_addr.sin_family = AF_INET;//使用IPv4协议
+    dest_addr.sin_port = htons(port);//设置接收方端口号
+    dest_addr.sin_addr.s_addr = inet_addr(argv[1]); //设置接收方IP 
+	
+	
+    char buf[1024] = {0};
+	//2 循环发送数据
+    while (1)
+    {
+		printf("Please input msg:");
+		scanf("%s",buf);//从键盘输入获取要发送的消息
+        sendto(udp_socket_fd, buf, strlen(buf), 0, (struct sockaddr *)&dest_addr,sizeof(dest_addr)); 
+        if(strcmp(buf, "exit") == 0)
+		{
+			break;//退出循环
+		}
+		memset(buf,0,sizeof(buf));//清空存留消息
+    }
+	
+	//3 关闭通信socket
+    close(udp_socket_fd);
+    return 0;
+}
+
+
+服务器端：
+#include <stdio.h>
+#include <sys/types.h>          
+#include <sys/socket.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdlib.h>
+ 
+ 
+int main(int argc,char *argv[])
+{
+	//判断命令行参数是否满足
+	if(argc != 2)
+	{
+		printf("请传递一个端口号\n");
+		return -1;
+	}
+ 
+	//将接收端口号并转换为int
+	int port = atoi(argv[1]);
+	if( port<1025 || port>65535 )//0~1024一般给系统使用，一共可以分配到65535
+	{
+		printf("端口号范围应为1025~65535");
+		return -1;
+	}
+	
+	// 1.创建udp通信socket  
+	int udp_socket_fd = socket(AF_INET,SOCK_DGRAM,0);
+	if(udp_socket_fd < 0 )
+	{
+		perror("creat socket fail\n");
+		return -1;
+	}
+ 
+	//2.设置UDP的地址并绑定 
+	struct sockaddr_in  local_addr = {0};
+	local_addr.sin_family  = AF_INET; //使用IPv4协议
+	local_addr.sin_port	= htons(port);   //网络通信都使用大端格式
+	local_addr.sin_addr.s_addr = INADDR_ANY;//让系统检测本地网卡，自动绑定本地IP
+ 
+	int ret = bind(udp_socket_fd,(struct sockaddr*)&local_addr,sizeof(local_addr));
+	if(ret < 0)
+	{
+		perror("bind fail:");
+		close(udp_socket_fd);
+		return -1;
+	}
+	else
+	{
+		printf("recv ready!!!\n");
+	}
+	
+ 
+	struct sockaddr_in  src_addr = {0};  //用来存放对方(信息的发送方)的IP地址信息
+	int len = sizeof(src_addr);	//地址信息的大小
+	char buf[1024] = {0};//消息缓冲区
+	
+	//3 循环接收客户发送过来的数据  
+	while(1)
+	{
+		ret = recvfrom(udp_socket_fd, buf, sizeof(buf), 0, (struct sockaddr *)&src_addr, &len);
+		if(ret == -1)
+		{
+			break;
+		}
+		printf("[%s:%d]",inet_ntoa(src_addr.sin_addr),ntohs(src_addr.sin_port));//打印消息发送方的ip与端口号
+		printf("buf=%s\n",buf);
+		if(strcmp(buf, "exit") == 0)
+		{
+			break;
+		}
+		memset(buf, 0, sizeof(buf));//清空存留消息
+ 
+	}
+	
+	//4 关闭通信socket
+	close(udp_socket_fd);
+}
