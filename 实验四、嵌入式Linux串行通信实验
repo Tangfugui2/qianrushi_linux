@@ -1,0 +1,608 @@
+实验四、嵌入式Linux串行通信实验
+一、实验目的
+1. 了解串行通信的原理和串口的信号定义。
+2. 了解异步通信的概念。
+3. 掌握Linux串口编程方法。
+二、实验基本要求
+掌握Linux串口编程方法，并通过编程打印GPS报文格式。
+三、实验原理
+1．串口标准和硬件
+	串口是计算机上的串行通讯的物理接口。计算机历史上，串口曾经被广泛用于连接计算机和终端设备和各种外部设备。虽然以太网接口和USB接口也是以一个串行流进行数据传送的，但是串口连接通常特指那些与RS-232标准兼容的硬件或者调制解调器的接口。虽然现在在很多个人计算机上，原来用以连接外部设备的串口已经广泛的被USB和Firewire替代；而原来用以连接网络的串口则被以太网替代，还有用以连接终端的串口设备则已经被MDA或者VGA取而代之。但是，一方面因为串口本身造价便宜技术成熟，另一方面因为串口的控制台功能RS-232标准高度标准化并且非常普及，所以直到现在它仍然被广泛应用到各种设备上。某些计算机使用一个叫做UART的集成电路来作为串口设备。这个集成电路可以进行字符和异步串行通讯序列之间的转换，并且可以自动地处理数据的时序。而某些低端设备则会让CPU直接通过输出针来传送数据，这种技术叫做bit-banging。因为“串口”，RS-232和UARTs基本上总是在同一个语境中出现，所以这些名词通常会被搞混。下面逐一解释以下一些重要的名词和术语。
+2．什么是串行通信
+	串口通信是指外围设备和计算机间使用一根数据信号线，数据在一根信号线上一位一位地进行传输，每一位数据都占据一个固定的时间长度。
+串行传输是二进制代码序列在一条信道上以位(元码)为单位、按时间顺序且按位传输的通信方式。串行传输时，发送端按位发送，接受端按位接受，同时还要对所传输的位加以确认，所以收发双方要采取同步措施，否则接受端不能正确解析出所传输的数据。
+在串行传输中，发送方为了告诉接受方，新的数据字节分组到达，在每一个数据字节分组前面有一个起始位（通常为0），为了让接受方知道字节已经结束，在每一个数据字节分组后面有一个停止位（通常为1），接受方一旦检测到停止位，接受方会一直等待，直到下一个开始位。
+计算机可以每次传送一个或者多个位(bit)的数据。“串行”指的式每次只传输一位(1bit)数据。当需要通过串行通讯传输一个字(word)的数据时，只能以每次一位的方式接收或者发送。每个位可能是on(1)或者off(0)。很多技术术语中经常用mark表示on，而space表示off。串行数据的速度通常用每秒传输的字节数bits-per-second(bps)或者波特率(baud)表示。这个值表示的是每秒钟被送出的0和1的个数。很久很久以前，300bps就是很快的速度了，而现在的电脑可以处理高达430,800的RS-232速率。表示波特率的单位还有kpbs和Mbps，1kps=1000bps而1Mbps=1000kbps。一般有人提到串行设备的时候，它通常说可能是某种数据通讯设备-DCE(Data Communications Equipment)或者数据终端设备-DTE(Data Terminal Equipment)。它们之间的区别非常简单，每个信号对，比如传送和接收，它们俩正好是相反的。如果需要将两个DTE或者DCE设备连接起来的话，需要适配器或者交叉线缆将信号对交换。
+3．异步通讯
+（1）波特率
+   单位时间内传输码元的数目称为波特率，对于大多数嵌入式设备，波特率一般设置为115200.
+（2）起始位
+   通信线路上没有数据被传送时，处于逻辑“1”状态。当发送设备要发送字符数据时，首先发送一个逻辑“0”信号，这个逻辑低电平就是信号传送的起始位。起始位通过通信线路传输到接受端，接受端检测到这个低电平后，就可以准备接受数据位信号。起始位所起的作用就是使通信双方同步。
+（3）数据位
+当接受端收到起始位后，开始接受数据位。数据位的个数可以是5-8位。在数据传送过程中，数据位从最低有效位开始传送。
+（4）奇偶校验位
+数据位发送完后，为了保证数据的可靠性，还要传送一个奇偶校验位。奇偶校验位用于差错检测。如果选择偶校验，则数据位和奇偶位的逻辑“1”的个数必须位偶数；相反，如果奇校验，数据位和奇偶位的逻辑“1”的个数必须位奇数。
+（5）停止位
+在奇偶位或数据位（当无奇偶校验时）之后发送停止位。停止位表示一个数据的结束，它可以是1-2位的低电平。接受端收到停止位后，通信线路便恢复逻辑“1”的状态，直到下一个数据的起始位到来。
+串行传输数据包的组成为：1个起始位+N个数据位+1个奇偶校验位+1个停止位。
+4. 什么是RS-232
+	RS-232是EIA(Electronic Industries Association)定义的串行通信的电器接口。RS-232事实上有三种(A,B和C)，它们分别采用不同的电压来表示on和off。最被广泛使用的是RS-232C，它将mark(on)比特的电压定义为-3V到-12V之间，而将space(off)的电压定义到+3V到+12V之间。虽然RS-232C标准说信号最远被传输8m，但事实上你可以使用它传输更长的距离，直到信号波特率已经小到不行了为止。 RS-232的连结线中除去用来传入传出数据的电线，还有一些用来提供时序，状态和握手的电线。
+针脚	名称	全名	方向(主机外设)
+3	TD	Transmit Data	->
+2	RD	Receive Data	<-
+7	RTS	Request To Send	->
+8	CTS	Clear To Send	<-
+6	DSR	Data Set Ready	<-
+4	DTR	Data Terminal Ready	->
+1	CD	Data Carrier Detect	<-
+9	RI	Ring Indicator	<-
+5	-	Signal Ground	 
+
+5．信号定义
+RS-232标准定义了18个不同的串行通信的信号。而这些之中，仅仅有如下6个可以在UNIX环境中使用。
+（1）GND - Logic Ground
+从技术角度讲，GND不能算是信号。但是没有它其他信号都不能用了。基本上，logic ground有点像一个参考电压，通过它来判断哪个电压表示正哪个电压表示负。
+（2）TXD - Transmitted Data
+TXD信号负载着从你的电脑或者设备到另一端(比如调制解调器)的数据。Mark范围的电压被解析成1，而space范围电压被解析成0。
+（3）RXD - Received Data
+RXD于TXD正好相反。它负载着从另一端的电脑或者设备上传到你的工作站的数据。Mark和space的解析方法于TXD一致。
+（4）DCD - Data Carrier Detect
+DCD信号通常来自串口连结线的另一端。这条信号线上的space电压表示另一端的电脑或者设备现在已经连接。但是，DCD信号线却不是总可以得到的，有些设备上有这条信号线，而有的则没有。
+（5）DTR - Data Terminal Ready
+DTR信号是你的工作站产生的，用以告诉另一端的电脑或者设备你已经是否已经准备好了。Space电压表示准备好了，而mark电压表示没有准备好。当你在工作站上打开串行接口时，DTR通常自动被设置位有效。
+（6）CTS - Clear To Send
+CTS则通常来自连结线的另一端。Space电压表示你可以从工作站送出更多的数据。CTS通常用来协调你的工作站和另一端之间的串行数据流。
+（7）RTS - Request To Send
+如果RTS信号被设置成space电压，这表示你准备好了一些数据需要传送。和CTS一样，RTS也被用来协调工作站和另一端的电脑或者设备之间的数据流。有些工作站上会一直将这个信号设置位space。
+6. 什么是全双工和半双工
+全双工(Full duplex)是说计算机可以同时接受和发送数据——也就是它有两个分开的数据传输通道(一个传入，一个传出)。
+半双工(Half duplex)表示计算机不能同时接受和发送数据，而在某一时刻它只能单一的传送或者接收。这通常意味着，它只有一个数据通道。半双工并不是说RS-232的某些信号不能使用，而是，它通常是使用了有别于RS-232的其他不支持全双工的标准。
+7．什么是流控制
+两个串行接口之间的传输数据流通常需要协调一致才行。这可能是由于用以通信的某个串行接口或者某些存储介质的中间串行通信链路的限制造成的。对于异步数据这里有两个方法做到这一点。
+第一种方法通常被叫做“软件”流控制。这种方法采用特殊字符来开始(XON，DC1，八进制数021)或者结束(XOFF，DC3或者八进制数023)数据流。而这些字符都在ASCII中定义好了。虽然这些编码对于传输文本信息非常有用，但是它们却不能被用于在特殊程序中的其他类型的信息。
+第二种方法叫做“硬件”流控制。这种方法使用RS-232标准的CTS和RTS信号来取代之前提到的特殊字符。当准备就绪时，接受一方会将CTS信号设置成为space电压，而尚未准备就绪时它会被设置成为mark电压。相应得，发送方会在准备就绪的情况下将RTS设置成space电压。正因为硬件流控制使用了于数据分隔的信号，所以与需要传输特殊字符的软件流控制相比它的速度很快。但是，并不是所有的硬件和操作系统都支持CTS/RTS流控制。
+8．串口操作
+（1）串口操作需要的头文件
+#include<stdio.h>/*标准输入输出定义*/
+#include<stdlib.h>/*标准函数库定义*/
+#include<unistd.h>/*Unix 标准函数定义*/
+#include<sys/types.h>
+#include<sys/stat.h>
+#include<fcntl.h>/*文件控制定义*/
+#include<termios.h>/*PPSIX 终端控制定义*/
+#include<errno.h>/*错误号定义*/
+（2）打开串口
+在 Linux 下串口文件是位于 /dev ，其中：
+a）串口一为：  /dev/ttyS0；
+b）串口二为：  /dev/ttyS1；
+c）USB转串口的设备名为： /dev/ttyUSB0；
+
+打开串口是通过使用标准的文件打开函数操作：
+int fd;
+/*以读写方式打开串口*/
+fd = open( "/dev/ttyS0", O_RDWR);
+if (-1 == fd){ 
+	/* 不能打开串口一*/
+	perror(" 提示错误！");
+}
+（3）设置串口
+最基本的设置串口包括波特率设置，效验位和停止位设置。串口的设置主要是设置 struct termios 结构体的各成员值。
+struct termio
+{	unsignedshortc_iflag;	/* 输入模式标志 */	
+	unsignedshortc_oflag;		/* 输出模式标志 */	
+	unsignedshortc_cflag;		/* 控制模式标志*/	
+	unsignedshortc_lflag;		/* local mode flags */	
+	unsignedcharc_line;		/* line discipline */	
+	unsignedcharc_cc[NCC];    /* control characters */
+};
+设置这个结构体很复杂，下面是修改波特率的代码：
+struct  termios Opt;
+tcgetattr(fd, &Opt);
+cfsetispeed(&Opt,B19200);     /*设置为19200Bps*/
+cfsetospeed(&Opt,B19200);
+tcsetattr(fd,TCANOW,&Opt);
+
+/**
+ *@brief  设置串口通信速率
+ *@param  fd     类型 int  打开串口的文件句柄
+ *@param  speed  类型 int  串口速度
+ *@return  void
+ */
+int speed_arr[] = { B38400, B19200, B9600, B4800, B2400, B1200, B300,
+		B38400, B19200, B9600, B4800, B2400, B1200, B300, };
+int name_arr[] = {38400,  19200,  9600,  4800,  2400,  1200,  300, 38400,  
+		19200,  9600, 4800, 2400, 1200,  300, };
+voidset_speed(int fd, int speed){
+	int   i; 
+	int   status; 
+	struct termios   Opt;
+	tcgetattr(fd, &Opt); 
+	for ( i= 0;  i <sizeof(speed_arr) / sizeof(int);  i++) { 
+		if  (speed == name_arr[i]) {     
+			tcflush(fd, TCIOFLUSH);     
+			cfsetispeed(&Opt, speed_arr[i]);  
+			cfsetospeed(&Opt, speed_arr[i]);   
+			status = tcsetattr(fd1, TCSANOW, &Opt);  
+			if  (status != 0) {        
+				perror("tcsetattr fd1");  
+				return;     
+			}    
+			tcflush(fd,TCIOFLUSH);   
+		}  
+	}
+}
+效验位和停止位的设置：
+无效验	8位	Option.c_cflag &= ~PARENB; 
+Option.c_cflag &= ~CSTOPB; 
+Option.c_cflag &= ~CSIZE; 
+Option.c_cflag |= ~CS8;
+奇效验(Odd)	7位	Option.c_cflag |= ~PARENB; 
+Option.c_cflag &= ~PARODD; 
+Option.c_cflag &= ~CSTOPB; 
+Option.c_cflag &= ~CSIZE; 
+Option.c_cflag |= ~CS7;
+偶效验(Even)	7位	Option.c_cflag &= ~PARENB; 
+Option.c_cflag |= ~PARODD; 
+Option.c_cflag &= ~CSTOPB; 
+Option.c_cflag &= ~CSIZE; 
+Option.c_cflag |= ~CS7;
+Space效验	7位	Option.c_cflag &= ~PARENB; 
+Option.c_cflag &= ~CSTOPB; 
+Option.c_cflag &= &~CSIZE; 
+Option.c_cflag |= CS8;
+
+设置效验的函数：
+/**
+ *@brief   设置串口数据位，停止位和效验位
+ *@param  fd     类型  int  打开的串口文件句柄
+ *@param  databits 类型  int 数据位取值为 7 或者8
+ *@param  stopbits 类型  int 停止位取值为 1 或者2
+ *@param  parity  类型  int  效验类型取值为N,E,O,,S
+ */
+intset_Parity(int fd,int databits,int stopbits,int parity)
+{ 
+	struct termios options; 
+	if  ( tcgetattr( fd,&options)  !=  0) { 
+		perror("SetupSerial 1");     
+		return(FALSE);  
+	}
+	options.c_cflag&= ~CSIZE; 
+	switch (databits) /*设置数据位数*/
+	{   
+	case 7:		
+		options.c_cflag |= CS7; 
+		break;
+	case 8:     
+		options.c_cflag |= CS8;
+		break;   
+	default:    
+		fprintf(stderr,"Unsupported data size\n"); return (FALSE);  
+	}
+	switch (parity) 
+	{   
+	case'n':
+	case'N':    
+		options.c_cflag&= ~PARENB;   /* Clear parity enable */
+		options.c_iflag&= ~INPCK;     /* Enable parity checking */
+		break;  
+	case'o':   
+	case'O':     
+		options.c_cflag |= (PARODD | PARENB); /* 设置为奇效验*/
+		options.c_iflag |= INPCK;             /* Disnable parity checking */
+		break;  
+	case'e':  
+	case'E':   
+		options.c_cflag |= PARENB;     /* Enable parity */
+		options.c_cflag&= ~PARODD;   /* 转换为偶效验*/
+		options.c_iflag |= INPCK;       /* Disnable parity checking */
+		break;
+	case'S': 
+	case's':  /*as no parity*/
+		options.c_cflag&= ~PARENB;
+		options.c_cflag&= ~CSTOPB;break;    
+	default:   
+		fprintf(stderr,"Unsupported parity\n");    
+		return (FALSE);  
+	}  
+	/* 设置停止位*/
+	switch (stopbits)
+	{   
+	case 1:    
+		options.c_cflag&= ~CSTOPB;  
+		break;  
+	case 2:    
+		options.c_cflag |= CSTOPB;  
+		break;
+	default:    
+		fprintf(stderr,"Unsupported stop bits\n");  
+		return (FALSE); 
+	} 
+	/* Set input parity option */
+	if (parity != 'n')   
+		options.c_iflag |= INPCK; 
+	tcflush(fd,TCIFLUSH);
+	options.c_cc[VTIME] = 150; /* 设置超时15 seconds*/
+	options.c_cc[VMIN] = 0; /* Update the options and do it NOW */
+	if (tcsetattr(fd,TCSANOW,&options) != 0)   
+	{ 
+		perror("SetupSerial 3");   
+		return (FALSE);  
+	} 
+	return (TRUE);  
+}
+如果不是开发终端之类的，只是串口传输数据，而不需要串口来处理，那么使用原始模式(Raw Mode)方式来通讯，设置方式如下：
+options.c_lflag  &= ~(ICANON | ECHO | ECHOE | ISIG);  /*Input*/
+options.c_oflag  &= ~OPOST;   /*Output*/
+（4）读写串口
+设置好串口之后，读写串口就很容易了，就是把串口当作文件读写。
+发送数据代码：
+char  buffer[1024];
+int    Length;
+int    nByte;nByte = write(fd, buffer ,Length);
+读取串口数据代码：
+char  buff[1024];
+int    Len;
+int  readByte = read(fd,buff,Len);
+使用文件操作read函数读取，如果设置为原始模式(Raw Mode)传输数据，那么read函数返回的字符数是实际串口收到的字符数。可以使用操作文件的函数来实现异步读取，如fcntl，或者select等来操作。
+（5）关闭串口
+关闭串口就是关闭文件。
+close(fd);
+（6）读写串口例程
+下面是一个简单的读取串口数据的例子，使用了上面定义的一些函数和头文件。
+/**********************************************************************
+代码说明：使用串口二测试的，发送的数据是字符，
+但是没有发送字符串结束符号，所以接收到后，后面加上了结束符号。
+我测试使用的是单片机发送数据到第二个串口，测试通过。
+ **********************************************************************/
+#defineFALSE  -1
+#define TRUE   0
+/*********************************************************************/
+intOpenDev(char *Dev)
+{
+	int	fd = open( Dev, O_RDWR );         //| O_NOCTTY | O_NDELAY	
+	if (-1 == fd)	
+	{ 			
+		perror("Can't Open Serial Port");
+		return -1;		
+	}	
+	else	
+		return fd;
+}
+intmain(int argc, char **argv){
+	int fd;
+	int nread;
+	char buff[512];
+	char *dev  = "/dev/ttyS1"; //串口二
+	fd = OpenDev(dev);
+	set_speed(fd,19200);
+	if (set_Parity(fd,8,1,'N') == FALSE)  {
+		printf("Set Parity Error\n");
+		exit (0);
+	}
+	while (1) //循环读取数据
+	{   
+		while((nread = read(fd, buff, 512))>0)
+		{ 
+			printf("\nLen %d\n",nread); 
+			buff[nread+1] = '\0';   
+			printf("\n%s", buff);   
+		}
+	}
+	//close(fd);  
+	// exit (0);
+}
+四、实验内容
+1. 将接口板与开发板用蓝色USB连接接口2和接口3，如下图所示。
+ 
+2. 首先用ifconfig查看虚拟机Ubuntu的IP地址，例如，IP为10.10.58.1，然后在实验箱嵌入式系统中挂载Ubuntu中/opt/work文件夹，命令如下：
+[root@FriendlyARM /root]# mount –t nfs –o nolock 10.10.58.1:/opt/work  /mnt
+3. 将Ubuntu中/mnt/hgfs下的共享目录中GPS.txt复制到/opt/work中，命令如下：
+[user@Ubuntu :/mnt/hgfs/Share] cp GPS.txt /opt/work
+4. 将实验箱中/mnt下的GPS.txt复制到/root下，命令如下：
+[root@FriendlyARM /mnt]# cp  GPS.txt  /root
+5. 循环点击接口板的功能选择键，直到LCD显示“flash编程模式”，在/root目录下包含了一个flash的写入程序，可以输入如下命令进行下载，
+[root@FriendlyARM /root]# ./flash  /dev/ttyUSB0  GPS.txt
+在下载前一定要确保接口板运行在Flash下载模式，由于GPS.txt文件较大，又是通过虚拟串口将GPS报文传输到接口板的flash上，故需要较长的时间，请耐心等待，只要有连续的‘. . . . .’输出，即说明GPS报文正在下载中。切记一定要等待flash下载完毕再推迟程序。
+  注：GPS报文来源为GPS标准模块的连续输出，指令格式符合NMEA-0183协议，为了能够模拟连续的带有经纬度变动的GPS信息，事先可以先通过工具在道路中采集GPS原始报文，然后保存为文本文件。由于FLASH的容量问题，文本文件必须小于2M字节，按照1Hz的GPS信息连续输出，大概可以存储30分钟左右的GPS报文。
+6. GPS.txt下载完后，按下接口板的功能选择键，直到LCD显示“GPS播放模式”。
+7. 根据实验原理中的例程，编写相关程序，进行交叉编译，在实验箱嵌入式系统中执行，读取并输出接口板中flash闪存中的GPS.txt数据。其中接口2和接口3是将USB串口芯片接入Linux系统，其设备编号应该为“/dev/ttyUSB0”，波特率为“115200”.
+程序源代码：
+/* com_reader.c */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <termios.h>
+
+#define BUFFER_SIZE 1024
+
+/* 串口配置函数，包括设置波特率，设置数据位、奇偶校验位、停止位 */
+int set_com_config(int fd,int speed, 
+					int data_bits, char parity, int stop_bits)
+{
+	struct termios new_cfg,old_cfg;
+
+	/*保存并测试现有串口参数设置，在这里如果串口号等出错，会有相关的出错信息*/
+	if  (tcgetattr(fd, &old_cfg)  !=  0) 
+	{
+		perror("tcgetattr");
+		return -1;
+	}
+	new_cfg = old_cfg;
+
+   	cfmakeraw(&new_cfg);  //设置为原始模式，即所有输入数据以字节进行处理，包括一些控制字符等 */
+
+	new_cfg.c_cflag &= ~CSIZE;
+
+	/*设置波特率*/
+  	switch (speed)
+  	{
+  		case 2400:
+		{
+			speed = B2400;
+			break;
+		}
+		
+  		case 4800:
+		{
+			speed = B4800;
+			break;
+		}
+		
+  		case 9600:
+		{
+			speed = B9600;
+			break;
+		}
+		
+  		case 19200:
+		{
+			speed = B19200;
+			break;
+		}
+		
+  		case 38400:
+		{
+			speed = B38400;
+			break;
+		}
+		
+		case 115200:
+		{
+			speed = B115200;
+			break;
+		}
+
+		default:
+		{
+			printf("输入的波特率错误！\n");
+			return (-1);
+		}
+		
+  	}
+
+	cfsetispeed(&new_cfg, speed); //输入波特率
+	cfsetospeed(&new_cfg, speed); //输出波特率
+	
+	switch (data_bits) /*设置数据位*/
+	{
+		case 7:	
+		{
+		     new_cfg.c_cflag |= CS7;
+		     break;
+		}
+
+		case 8:
+		{
+			new_cfg.c_cflag |= CS8;
+			break;
+		}
+		 
+		default:
+		{
+            fprintf(stderr,"Unsupported data size\n");
+            return (-1);
+		}
+  	}
+  	
+  	switch (parity) /*设置奇偶校验位*/
+  	{
+		case 'n':
+		case 'N':     //表示无奇偶校验位
+		{
+			new_cfg.c_cflag &= ~PARENB;   
+			new_cfg.c_iflag &= ~INPCK;    
+		    break;
+		}
+
+
+		case 'o':
+		case 'O':    //表示偶校验
+		{
+			new_cfg.c_cflag |= (PARODD | PARENB);  
+			new_cfg.c_iflag |= INPCK;    
+			break;
+		}
+
+
+		case 'e':
+		case 'E':   //表示奇校验
+		{
+			new_cfg.c_cflag |= PARENB;  
+			new_cfg.c_cflag &= ~PARODD; 
+			new_cfg.c_iflag |= INPCK;  
+			break;
+		}
+
+
+		case 's':   //表示space校验
+		case 'S':
+		{
+			new_cfg.c_cflag &= ~PARENB;
+			new_cfg.c_cflag &= ~CSTOPB;		
+			break;
+		}
+
+		default:
+		{
+            fprintf(stderr,"Unsupported parity\n");
+            return (-1);
+		}
+
+	}
+		
+	switch (stop_bits) /*设置停止位*/
+	{
+
+		case 1:
+		{
+			new_cfg.c_cflag &=  ~CSTOPB;
+		    break;
+		}
+
+
+		case 2:
+		{
+			new_cfg.c_cflag |= CSTOPB;
+			break;
+		}
+
+		default:
+		{
+            fprintf(stderr,"Unsupported stop bits\n");
+            return (-1);
+		}
+	}
+	
+	/*设置等待时间和最小接收字符*/
+	new_cfg.c_cc[VTIME]  = 100;
+	new_cfg.c_cc[VMIN] = 1;
+
+	tcflush(fd, TCIFLUSH); /*清空缓冲区，即将未读取的字符数据进行清空*/
+
+	if ((tcsetattr(fd, TCSANOW, &new_cfg)) != 0) /*立即激活新的串口配置*/
+	{
+		perror("tcsetattr");
+		return -1;
+	}	
+	return 0;
+}
+
+
+
+int main(void) 
+{
+	int fd;
+	char buff[BUFFER_SIZE];
+	
+	/* 打开串口 */
+	fd = open("/dev/ttyUSB0",O_RDWR|O_NOCTTY|O_NDELAY); //打开串口"/dev/ttyUSB0",并且以可读写方式O_RDWR打开  //
+	if (fd < 0)
+	{
+			perror("open serial port");
+			return(-1);
+	}
+	
+	if (fcntl(fd, F_SETFL, 0) < 0) /*将串口设置为阻塞状态，直到有数据可读写*/
+	{
+		perror("fcntl F_SETFL\n");
+		return(-1);
+	}
+		
+     /* 配置串口fd的参数 */
+	if(set_com_config(fd,115200,8,'n',1) < 0) //串口fd设置为：波特率位115200、数据位为8、奇偶校验位为无、停止位为1
+	{
+		perror("set_com_config");
+		return -1;
+	}
+	
+	while(1)
+	{
+		memset(buff, 0, BUFFER_SIZE);  //将buff所有元素都置0
+		if(read(fd,&buff,BUFFER_SIZE) > 0)//读取串口fd中BUFFER_SIZE个字节到buff中
+		{
+			printf("%s",buff);   //输出buff中字符串
+		}
+		//fflush(stdin);
+		//if('8'==getchar()) 
+		//{
+		//	break;
+		//}
+	} 
+
+  	close(fd); //关闭串口句柄
+  	return 0;
+}
+
+
+Makefile文件内容如下：
+	CC=gcc
+CROSS_COMPILE=arm-linux-
+OBJ=lab2
+$(OBJ):lab2.o
+$(CROSS_COMPILE)$(CC) -o S(OBJ) lab2.o
+sum.o:sum.c
+$(CROSS_COMPILE)$(CC) -c lab2.c
+clean:
+rm-f *.o
+
+
+五、实验结果及分析
+1. 简述串口通信的原理，在其中简要接受开始位、数据位、奇偶校验位、停止位的概念。
+1.1起始位：
+在发送有效数据前，无需配置，会自动产生1bit 逻辑“0”的低电平的起始位,表示串口数据传输开始，之后开始发送有效数据。
+
+1.2数据位：
+数据位，决定了通信过程中传输的有效数据位数，数据位通常有5、6、7 、8 bit，需要根据需要进行相应的配置
+
+1.3奇偶校验位：
+奇偶校验位，因为在通信过程中易受到外部干扰而导致数据出现偏差，所以在有效数据之后增加了校验位来解决这个问题，校验方式需要配置，校验方式有奇校验、偶校验、0校验和1校验：
+奇校验要求有效数据和校验位中“1”的个数为奇数；
+偶校验则要求有效数据和校验位中“1”的个数为偶数；
+0校验位则是校验位始终为0，在收到报文后，检测校验位是否为0；
+1校验则是校验位始终为1，在收到报文后，检测校验位是否为1
+
+1.4停止位：
+停止位，停止位是一帧数据结束的标志，可以是1bit、1.5bit或者2bit逻辑“1” 高电平，需要根据自己需求配置，每一个设备都有自己的时钟，在传输过程中可能出现了小小的不同步，停止位不仅仅表示传输的结束，并且提供了校正时钟同步的机会
+
+
+
+
+2. Linux串口编程中，使用串口进行读写数据时，包括哪些主要步骤。
+给串口写数据 ：
+使用write就可以发送数据了：
+和写入其他设备文件的方式相同，write函数也会返回发送数据的字节数或者在发生错误的时候返回-1。通常，发送数据最常见的错误就是EIO，当调制解调器或者数据链路将Data Carrier Detect(DCD)信号线弄掉了，就会发生这个错误。而且，直至关闭端口这个情况会一直持续。
+
+从串口上读取数据：
+read(fd,&buff,BUFFER_SIZE)
+和读其他文件操作方式也一样，但是需要注意的是！从串口上读取数据的时候就得耍花招了。因为，如果你在原数据模式(raw data mode)操作端口的话，每个read(2)系统调用都会返回从串口输入缓冲区中实际得到的字符的个数。在不能得到数据的情况下，read(2)系统调用就会一直等着，只到有端口上新的字符可以读取或者发生超时或者错误的情况发生。如果需要read(2)函数迅速返回的话，你可以使用下面这个方式：
+标志FNDELAY可以保证read(2)函数在端口上读不到字符的时候返回0。需要回到正常（阻塞）模式的时候，需要再次在不带FNDELAY标志的情况下调用fcntl(2)函数：
+当然，如果你最初就是以O_NDELAY标志打开串口的，你也可在之后使用这个方法改变读取的行为方式。最好还是设置好串口属性之后再进行读写操作
+
+
+
+
+
+3. 通过查找资料找出多线程使用串口的方法。
+
+1.创建工程
+1.1 建立空白工程
+1.2 添加控件
+2. 在主线程实现串口发送
+2.1 在.pro文件和.h文件中引入QSerialPort
+2.2 查找可用串口
+2.3 打开&关闭串口
+2.4 将字节序列转换为对应的16进制字符串
+2.5 将16进制字符串转换为对应的字节序列
+2.6 使用串口发送
+2.7 使用串口接收
+3. 在子线程实现串口发送与接收
+3.1 建立串口事务处理子线程类:SerialWorker
+3.2 修改默认工程
+3.3 增加子线程串口发送、接收槽函数、结果通知信号
+3.4 在GUI线程中增加数据发送信号、结果接收槽
+3.5 在GUI线程中添加串口子线程
+3.6 效果演示
